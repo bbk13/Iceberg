@@ -23,6 +23,18 @@ match <- read_excel("../temp_table/Match.xlsx", 1)
 team.roster <- read_excel("../temp_table/TeamRoster.xlsx", 1)
 load("../temp_table/temp.RData")
 
+# Схлопываем несколько подряд Off the board
+
+events$del[1] <- 0
+i <- 2
+while(i <= nrow(events)){
+  ifelse(events$Event[i] == "Off the boards" & events$Event[i-1] == "Off the boards", 
+         events$del[i] <- 1, events$del[i] <- 0)
+  i <- i + 1
+}
+events <- filter(events, del == 0)
+events$del <- NULL
+
 # Определяем строки только с игровым временем и вычисляем время игры
 
 i <- 1
@@ -214,27 +226,21 @@ while(i <= nrow(events)){
   i <- i + 1
 }
 
-events$Event_team2[1] <- as.character(events$Event_team[1])
+# Расчет командного владения
+
+events$PosessionID[1] <- 1
 i <- 2
 while(i <= nrow(events)){
-  ifelse(events$Event[i] == "Off the boards", events$Event_team2[i] <- as.character(events$Event_team2[i-1]),
-         events$Event_team2[i] <- as.character(events$Event_team[i]))
+  ifelse((events$Event_team[i] == events$Event_team[i-1] & events$Event_team[i] != "-") | 
+           (events$Event[i] != "off the boards" & events$Event_team[i+1] == events$Event_team[i-1]) | 
+           (events$Event_team[i] == events$Event_team[i-2] & events$Event[i-1] == "Off the boards"), 
+         events$PosessionID[i] <- events$PosessionID[i-1], 
+         ifelse(events$Event_team[i] == "-", events$PosessionID[i] <- 0, 
+                events$PosessionID[i] <- max(events[1:(i-1),]$PosessionID) + 1))
   i <- i + 1
 }
-events$ComPass[1] <- 1
-i <- 2
-while(i <= nrow(events)){
-  ifelse(events$Event_team2[i] == events$Event_team2[i-1], events$ComPass[i] <- events$ComPass[i-1],
-         events$ComPass[i] <- events$ComPass[i-1] + 1)
-  i <- i + 1
-}
-i <- 1
-while(i <= nrow(events)){
-  ifelse(events$Event_team2[i] == "-", events$ComPass[i] <- 0,
-         events$ComPass[i] <- events$ComPass[i])
-  i <- i + 1
-}
-events$Event_team2 <- NULL
+
+
 i <- 1
 while(i <= nrow(events)){
   events$ID[i] <- i
@@ -242,8 +248,8 @@ while(i <= nrow(events)){
 }
 
 i <- 1
-while(i <= max(events$ComPass)){
-  tt <- events[events$ComPass == i & (events$Event == "Pass" | substr(events$Event, 1, 4) == "Shot" | events$Event == "Goal"),]
+while(i <= max(events$PosessionID)){
+  tt <- events[events$PosessionID == i & (events$Event == "Pass" | substr(events$Event, 1, 4) == "Shot" | events$Event == "Goal"),]
   j <- 1
   while(j <= nrow(tt)){
     tt$seq3[j] <- str_c(substr(tt$Event[j],1,4), substr(tt$Event[j+1],1,4), substr(tt$Event[j+2],1,4), sep = "-")
@@ -286,13 +292,12 @@ while(i <= nrow(events)){
 events$OwnerID[1] <- 1
 i <- 2
 while(i <= nrow(events)){
-  if(events$Event_team[i] == events$Event_team[i-1] & events$Jersey[i] == events$Jersey[i-1])
-    events$OwnerID[i] <- events$OwnerID[i-1] else events$OwnerID[i] <- events$OwnerID[i-1] + 1
-    i <- i + 1
-}
-i <- 1
-while(i <= nrow(events)){
-  ifelse(events$Event_team[i] == "-", events$OwnerID[i] <- 0, events$OwnerID[i] <- events$OwnerID[i])
+  ifelse((events$Event_team[i] == events$Event_team[i-1] & events$Jersey[i] == events$Jersey[i-1] & events$Event_team[i] != "-") | 
+           (events$Event[i] != "off the boards" & events$Event_team[i+1] == events$Event_team[i-1] & events$Jersey[i+1] == events$Jersey[i-1]) | 
+           (events$Event_team[i] == events$Event_team[i-2] & events$Jersey[i] == events$Jersey[i-2] & events$Event[i-1] == "Off the boards"), 
+         events$OwnerID[i] <- events$OwnerID[i-1], 
+         ifelse(events$Event_team[i] == "-", events$OwnerID[i] <- 0, 
+                events$OwnerID[i] <- max(events[1:(i-1),]$OwnerID) + 1))
   i <- i + 1
 }
 
@@ -418,29 +423,7 @@ while(i <= max(events$EZ)){
   i <- i + 1
 }
 
-## Отмечаем только те входы в зону при которых игрок атакующей команды сделал
-## хоть один эвент кроме Reception
-# i <- 1
-# while(i <= max(events$EZ)){
-#   cur <- filter(events, EZ == i)
-#   ifelse(cur$Homezone[1] == "Off", var <- nrow(filter(cur, Event_team == Hometeam & Event != "Reception")), 
-#          var <- nrow(filter(cur, Event_team == Awayteam & Event != "Reception")))
-#   if(var == 0) events[events$EZ == i,]$EZ <- 0 else  events[events$EZ == i,]$EZ <-  events[events$EZ == i,]$EZ
-#   i <- i + 1
-# }
-## Определяем тип входа в зону
-### Определяем вход в зону с владением
-# events$TypeEZ[1] <- "-"
-# i <- 2
-# while(i <= nrow(events)){
-#   ifelse(events$EZ[i-1] == 0 & events$EZ[i] != 0,ifelse(events$EZ[i] != 0 & ((events$Event_team[i] == events$Hometeam[i] & events$Homezone[i] == "Off") | (events$Event_team[i] == events$Awayteam[i] & events$Homezone[i] == "Def")),
-#                                                         ifelse((events$Event_team[i-1] == events$Event_team[i] & events$Event[i-1] == "Skating with the puck") | (events$Event[i-1] == "Skating with the puck" & events$Event_team[i-1] == events$Event_team[i] & events$Jersey[i-1] == events$Jersey[i]) | 
-#                                                                  (events$Event[i-1] == "Reception" & abs(8.83 - abs(events$xcoord[i-1])) <= 2 & events$Event_team[i-1] == events$Event_team[i] & events$Jersey[i-1] == events$Jersey[i]),
-#                                                                events$TypeEZ[i] <- "Carry in",
-#                                                                events$TypeEZ[i] <- "Dump in"), 
-#                                                         events$TypeEZ[i] <- "-"), events$TypeEZ[i] <- "-")
-#   i <- i + 1
-# }
+
 events$TypeEZ[1] <- "-"
 i <- 2
 while(i <= nrow(events)){
@@ -613,9 +596,9 @@ i <- 1
 while(i <= nrow(grd)){
   grd$Goals[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], Event == "Goal" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$ShotsAll[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], substr(Event, 1, 4) == "Shot" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
-  grd$ShotsNotBlocked[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked" & Event != "Shot Attempt - Wide left" & Event != "Shot Attempt - Wide right" & Event != "Shot Attempt - Over the net") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
-  grd$ShotOntarget[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
-  grd$ShotAccuracy[i] <- str_c(round(as.numeric(grd$ShotOntarget[i])/as.numeric(grd$ShotsAll[i]), 4)*100, "%", sep = "")
+  grd$ShotsOntarget[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked" & Event != "Shot Attempt - Wide left" & Event != "Shot Attempt - Wide right" & Event != "Shot Attempt - Over the net") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
+  grd$ShotsNotBlocked[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
+  grd$ShotsAccuracy[i] <- str_c(round(as.numeric(grd$ShotOntarget[i])/as.numeric(grd$ShotsAll[i]), 4)*100, "%", sep = "")
   grd$ScoringChance[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Danger")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & Danger == "Danger"))
   grd$Realization[i] <- str_c(round(as.numeric(grd$Goals[i])/as.numeric(grd$ShotOntarget[i]), 4)*100, "%", sep = "")
   grd$Pass[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], Event == "Pass" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
