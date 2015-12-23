@@ -10,7 +10,7 @@ setwd("E:/IcebergPro/game_table")
 filelist <- as.data.frame(dir())
 names(filelist) <- "name"
 events <- read_excel(as.character(filelist$name[1]), 1, col_names = F)
-coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ",")
+coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ";")
 coord.best <- read.csv(as.character(filelist$name[3]), header = F, sep = ",")
 names(coord) <- c("Team", "Jersey", "Period", "Time", "X", "Y")
 names(coord.best) <- c("Team", "Jersey", "Period", "Time", "X", "Y")
@@ -423,6 +423,7 @@ while(i <= max(events$EZ)){
   i <- i + 1
 }
 
+# Проставляем тип входа в зону
 
 events$TypeEZ[1] <- "-"
 i <- 2
@@ -505,6 +506,45 @@ while(i <= nrow(events)){
   i <- i + 1
 }
 
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$TypeEZ[i-1] != "-" & events$LocationEZ[i] != "-", events$TypeEZ[i] <- events$TypeEZ[i-1], 
+         events$TypeEZ[i] <- events$TypeEZ[i])
+  i <- i + 1
+}
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$EZ[i] == 1, {events$TypeEZ[i] <- events$TypeEZ[i]; events$LocationEZ[i] <- events$LocationEZ[i]}, 
+         {events$TypeEZ[i] <- "-"; events$LocationEZ[i] <- "-"})
+  i <- i + 1
+}
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$TypeEZ[i] == events$TypeEZ[i-1] & events$TypeEZ[i] != "-", 
+         events$EZ[i] <- 0, events$EZ[i] <- events$EZ[i])
+  i <- i + 1
+}
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$TypeEZ[i] == "-", {events$EZ[i] <- 0; events$LocationEZ[i] <- "-"},
+         {events$EZ[i] <- events$EZ[i]; events$LocationEZ[i] <- events$LocationEZ[i]})
+  i <- i + 1
+}
+events$EntryZoneID[1] <- "-"
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$EZ[i] == 1, events$EntryZoneID[i] <- str_c(events$Event_team[i], events$Jersey[i], sep = ""), 
+         events$EntryZoneID[i] <- "-")
+  i <- i + 1
+}
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$TypeEZ[i] == events$TypeEZ[i-1] & events$TypeEZ[i] != "-", 
+         events$EntryZoneID[i] <- events$EntryZoneID[i-1], 
+         events$EntryZoneID[i] <- events$EntryZoneID[i])
+  i <- i + 1
+}
+  
 # Определяем количество игроков на площадке
 
 events$HomeSkate[1] <- 5
@@ -598,9 +638,7 @@ while(i <= nrow(grd)){
   grd$ShotsAll[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], substr(Event, 1, 4) == "Shot" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$ShotsOntarget[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked" & Event != "Shot Attempt - Wide left" & Event != "Shot Attempt - Wide right" & Event != "Shot Attempt - Over the net") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$ShotsNotBlocked[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], (substr(Event, 1, 4) == "Shot" & Event != "Shot Attempt - Blocked") & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
-  grd$ShotsAccuracy[i] <- str_c(round(as.numeric(grd$ShotOntarget[i])/as.numeric(grd$ShotsAll[i]), 4)*100, "%", sep = "")
   grd$ScoringChance[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Danger")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & Danger == "Danger"))
-  grd$Realization[i] <- str_c(round(as.numeric(grd$Goals[i])/as.numeric(grd$ShotOntarget[i]), 4)*100, "%", sep = "")
   grd$Pass[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event")], Event == "Pass" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$PassOZ[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event", "Hometeam", "Awayteam", "Homezone")], Event == "Pass" & ((Event_team == Hometeam & Homezone == "Off")|(Event_team == Awayteam & Homezone == "Def")) & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$PassNZ[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event", "Homezone")], Event == "Pass" & Homezone == "Neu" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
@@ -609,10 +647,6 @@ while(i <= nrow(grd)){
   grd$PassGoodOZ[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event", "Hometeam", "Awayteam", "Homezone", "GoodPass")], GoodPass == 1 & ((Event_team == Hometeam & Homezone == "Off")|(Event_team == Awayteam & Homezone == "Def")) & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$PassGoodNZ[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event", "GoodPass", "Homezone")], GoodPass == 1 & Homezone == "Neu" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$PassGoodDZ[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Event", "Hometeam", "Awayteam", "Homezone", "GoodPass")], GoodPass == 1 & ((Event_team == Hometeam & Homezone == "Def")|(Event_team == Awayteam & Homezone == "Off")) & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
-  grd$PassPer[i] <- str_c(round((as.numeric(grd$PassGood[i])/as.numeric(grd$Pass[i]))*100,2), "%", sep = "")
-  grd$PassPerOZ[i] <- str_c(round((as.numeric(grd$PassGoodOZ[i])/as.numeric(grd$PassOZ[i]))*100,2), "%", sep = "")
-  grd$PassPerNZ[i] <- str_c(round((as.numeric(grd$PassGoodNZ[i])/as.numeric(grd$PassNZ[i]))*100,2), "%", sep = "")
-  grd$PassPerDZ[i] <- str_c(round((as.numeric(grd$PassGoodDZ[i])/as.numeric(grd$PassDZ[i]))*100,2), "%", sep = "")
   grd$Cross[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Pass.cross")], Pass.cross != "-" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$Forward[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Pass.forward")], Pass.forward != "-" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
   grd$Backward[i] <- group_size(filter(events[,c("Event_team", "Jersey", "Pass.backward")], Pass.backward != "-" & grd$Team[i] == Event_team & grd$Jersey[i] == Jersey))
@@ -624,13 +658,10 @@ while(i <= nrow(grd)){
   grd$Possession[i] <- sum(filter(events[,c("Event_team", "Event_team.next", "Jersey", "Jersey.next", "Event", "Duration")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & (Event == "Skating with the puck" | (Event_team == Event_team.next & Jersey == Jersey.next)))$Duration)
   grd$PossessionOff[i] <- sum(filter(events[,c("Event_team", "Event_team.next", "Jersey", "Jersey.next", "Event", "Duration", "Homezone", "Hometeam", "Awayteam")], ((Hometeam == grd$Team[i] & Homezone == "Off")|(Awayteam == grd$Team[i] & Homezone == "Def")), Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & (Event == "Skating with the puck" | (Event_team == Event_team.next & Jersey == Jersey.next)))$Duration)
   grd$PossessionDef[i] <- sum(filter(events[,c("Event_team", "Event_team.next", "Jersey", "Jersey.next", "Event", "Duration", "Homezone", "Hometeam", "Awayteam")], ((Hometeam == grd$Team[i] & Homezone == "Def")|(Awayteam == grd$Team[i] & Homezone == "Off")), Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & (Event == "Skating with the puck" | (Event_team == Event_team.next & Jersey == Jersey.next)))$Duration)
-  
   grd$Min[i] <- floor(sum(filter(events[,c("Event_team", "Event_team.next", "Jersey", "Jersey.next", "Event", "Duration")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & (Event == "Skating with the puck" | (Event_team == Event_team.next & Jersey == Jersey.next)))$Duration)/60)
-  grd$Pos[i] <- str_c(grd$Min[i], round(as.numeric(grd$Possession[i]) - as.numeric(grd$Min[i])*60, 0), sep = ":")
   grd$Possession.num[i] <- as.numeric(nrow(distinct(filter(events[, c("Event_team", "Event_team.next", "Jersey", "Jersey.next", "Event", "OwnerID")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & (Event == "Skating with the puck" | (Event_team == Event_team.next & Jersey == Jersey.next))), OwnerID)))
   grd$AVGPuckPossession[i] <- round(as.numeric(grd$Possession[i])/as.numeric(grd$Possession.num[i]), 2)
   grd$Losses.num[i] <- as.numeric(group_size(filter(events[,c("Event_team", "Jersey", "GoodPass")], grd$Team[i] == Event_team & grd$Jersey[i] == Jersey & GoodPass == "0")))
-  grd$LossesPer[i] <- str_c((round(as.numeric(grd$Losses.num[i])/as.numeric(grd$Possession.num[i]), 4))*100, "%", sep = "")
   grd$Interception[i] <- group_size(filter(events[,c("Event_team", "Event_team.prev", "Jersey", "Event.prev")], Event_team == grd$Team[i] & Jersey == grd$Jersey[i] & Event.prev == "Pass" & Event_team != Event_team.prev))
   grd$Speed.avg[i] <- mean(filter(temp[, c("Team", "Jersey", "AVG_Speed")], Team == grd$Team[i] & Jersey  == grd$Jersey[i])$AVG_Speed)
   grd$Acceleration.avg[i] <- mean(filter(temp[, c("Team", "Jersey", "AVG_Acceleration")], Team == grd$Team[i] & Jersey == grd$Jersey[i])$AVG_Acceleration)
@@ -648,8 +679,6 @@ while(i <= nrow(grd)){
   grd$GA[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Event", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Event_team != grd$Team[i] & substr(Event, 1, 4) == "Goal")))
   grd$SCF[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Danger", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Jersey != grd$Jersey[i] & Event_team == grd$Team[i] & Danger == "Danger")))
   grd$SCA[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Danger", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Event_team != grd$Team[i] & Danger == "Danger")))
-  
-  
   i <- i + 1
 }
 i <- 1
