@@ -5,13 +5,13 @@ library(readxl)
 
 # Устанавливаем текущую директорию
 
-setwd("E:/IcebergPro/game_table")
+setwd("E:/Iceberg/game_table")
 
 # Формируем список файлов
 
 filelist <- as.data.frame(dir())
 names(filelist) <- "name"
-coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ";")
+coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ",")
 names(coord) <- c("Team", "Jersey", "Period", "Time", "X", "Y")
 temp <- read.table("../temp_table/cap.txt", header = T, sep = ";")
 temp.soc <- read.table("../temp_table/cap.soc.txt", header = T, sep = ";")

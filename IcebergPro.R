@@ -3,14 +3,14 @@ library(stringr)
 library(readxl)
 library(sqldf)
 
-setwd("E:/IcebergPro/game_table")
+setwd("E:/Iceberg/game_table")
 
 # Чтение файла с событиями и координатами
 
 filelist <- as.data.frame(dir())
 names(filelist) <- "name"
 events <- read_excel(as.character(filelist$name[1]), 1, col_names = F)
-coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ";")
+coord <- read.csv(as.character(filelist$name[2]), header = F, sep = ",")
 coord.best <- read.csv(as.character(filelist$name[3]), header = F, sep = ",")
 names(coord) <- c("Team", "Jersey", "Period", "Time", "X", "Y")
 names(coord.best) <- c("Team", "Jersey", "Period", "Time", "X", "Y")
@@ -22,6 +22,15 @@ events$Period <- as.numeric(events$Period)
 match <- read_excel("../temp_table/Match.xlsx", 1)
 team.roster <- read_excel("../temp_table/TeamRoster.xlsx", 1)
 load("../temp_table/temp.RData")
+
+# Меняем команды на их ID
+
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$Event_team[i] == "-", events$Event_team[i] <- "-", 
+         events$Event_team[i] <- filter(team.roster, Team == events$Event_team[i])$TeamID)
+  i <- i + 1
+}
 
 # Схлопываем несколько подряд Off the board
 
@@ -97,13 +106,17 @@ while(i <= nrow(events)){
   i <- i + 1
 }
 
-# Определяем команды хозяев и гостей
+# Определяем команды хозяев и гостей (и заменяем их сразу на ID)
 
 del <- as.data.frame(str_locate_all(filelist$name[1], "-"))
 events$Hometeam <- str_sub(filelist$name[1], start = del$start[3]+1, 
                              end = del$start[4]-1)
 events$Awayteam <- str_sub(filelist$name[1], start = del$start[4]+1, 
                              end = del$start[5]-1)
+events$Hometeam <- filter(team.roster, Team == events$Hometeam[1])$TeamID
+events$Awayteam <- filter(team.roster, Team == events$Awayteam[1])$TeamID
+
+
 
 # Определяем счет и делаем с накопительным итогом
 
@@ -331,7 +344,7 @@ match$FirstScore <- str_c(max(events[events$Period == 1,]$Homescore), max(events
 match$SecondScore <- str_c((max(events[events$Period == 2,]$Homescore)-max(events[events$Period == 1,]$Homescore)), (max(events[events$Period == 2,]$Awayscore) - max(events[events$Period == 1,]$Awayscore)), sep = "-")
 match$ThirdScore <- str_c((max(events[events$Period == 3,]$Homescore)-max(events[events$Period == 2,]$Homescore)), (max(events[events$Period == 3,]$Awayscore) - max(events[events$Period == 2,]$Awayscore)), sep = "-")
 match$Season <- str_extract(filelist$name, "КХЛ-\\d+-\\d+")
-match$Stadium <- filter(team.roster, Team == match$HomeTeam)$Arena
+match$Stadium <- filter(team.roster, TeamID == match$HomeTeam)$Arena
 
 # Собираем файл с координатами шайбы
 
@@ -374,6 +387,12 @@ c.dist <- c.dist[order(c.dist$Period, c.dist$Time),]
 c.dist <- c.dist[, c("Period", "Time")]
 c.dist$Homepl[1] <- ""
 c.dist$Awaypl[1] <- ""
+coord.best$Team <- as.character(coord.best$Team)
+i <- 1
+while(i <= nrow(coord.best)){
+coord.best$Team[i] <- filter(team.roster, Team == coord.best$Team[i])$TeamID
+i <- i + 1
+}
 i <- 1
 while(i <= nrow(c.dist)){
   h <- filter(coord.best, Period == c.dist$Period[i] & Time == c.dist$Time[i])
@@ -437,11 +456,13 @@ while(i <= nrow(events)){
 }
 # В ДАЛЬНЕЙШЕМ НЕОБХОДИМО ПОДКОРРЕКТИРОВАТЬ ВХОДЫ В ЗОНУ DUMP IN
 
+events$Homepl <- str_replace_na(events$Homepl, "00")
+events$Awaypl <- str_replace_na(events$Awaypl, "00")
 i <- 1
 while(i <= nrow(events)){
   ifelse(events$TypeEZ[i] != "Dump in", i <- i + 1, 
          {
-           tmp <- filter(events, Seconds >= events$Seconds[i] & Seconds < events$Seconds[i] + 3)
+           tmp <- filter(events, Seconds >= events$Seconds[i] & Seconds < events$Seconds[i] + 3);
            ifelse(tmp$Homezone[1] == "Off", 
                   {fst <- tmp$Homepl[1]; lst <- tmp$Homepl[nrow(tmp)]}, 
                   {fst <- tmp$Awaypl[1]; lst <- tmp$Awaypl[nrow(tmp)]});
@@ -453,8 +474,8 @@ while(i <= nrow(events)){
              fst <- str_replace(fst, dig, "")
              j <- j + 1
            };
-           ifelse(k >= 3, events$TypeEZ[i] <- "-", events$TypeEZ[i] <- "Dump in")
-           i <- i + 1
+           ifelse(k >= 3, events$TypeEZ[i] <- "-", events$TypeEZ[i] <- "Dump in");
+           i <- i + 1;
          })
 }
 
@@ -474,6 +495,66 @@ while(i <= nrow(events)){
          events$LocationEZ[i] <- "-")
   i <- i + 1
 }
+
+#########################################################################################
+
+events$EZshort[1] <- 0
+i <- 2
+while(i <= nrow(events)){
+  ifelse(events$Homezone[i] == "Neu", events$EZshort[i] <- 0, 
+         ifelse(events$Homezone[i] != "Neu" & events$Homezone[i-1] != events$Homezone[i], 
+                events$EZshort[i] <- max(events$EZshort[1:i-1]) + 1, ifelse(events$Event[i] != "Whistle",events$EZshort[i] <- events$EZshort[i-1], events$EZshort[i] <- 0)))
+  i <- i + 1
+}
+i <- 1
+while(i <= max(events$EZshort)){
+  cur <- events[events$EZshort == i,]
+  ifelse(cur$Homezone[1] == "Off", var <- nrow(cur[cur$Event_team == cur$Hometeam & cur$Event != "Reception",]), 
+         var <- nrow(cur[cur$Event_team == cur$Awayteam & cur$Event != "Reception",]))
+  if(var == 0) events[events$EZshort == i,]$EZshort <- 0 else  events[events$EZshort == i,]$EZshort <-  events[events$EZshort == i,]$EZshort
+  i <- i + 1
+}
+events$TypeEZshort[1] <- "-"
+i <- 2
+while(i <= nrow(events)){
+  ifelse(events$EZshort[i-1] == 0 & events$EZshort[i] != 0,ifelse(events$EZshort[i] != 0,
+                                                                  ifelse((events$Event_team[i-1] == events$Event_team[i] & events$Event[i-1] == "Skating with the puck" & events$Event[i] == "Skating with the puck") | (events$Event[i-1] == "Skating with the puck" & events$Event_team[i-1] == events$Event_team[i] & events$Jersey[i-1] == events$Jersey[i]) | 
+                                                                           (events$Event[i-1] == "Reception" & abs(8.83 - abs(events$xcoord[i-1])) <= 2 & events$Event_team[i-1] == events$Event_team[i] & events$Jersey[i-1] == events$Jersey[i]),
+                                                                         events$TypeEZshort[i] <- "Carry in",
+                                                                         events$TypeEZshort[i] <- "-"), 
+                                                                  events$TypeEZshort[i] <- "-"), events$TypeEZshort[i] <- "-")
+  i <- i + 1
+}
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$EZshort[i] != 0 & events$TypeEZshort[i] != "Carry in" & events$EZshort[i-1] == 0, events$TypeEZshort[i] <- "Dump in", 
+         events$TypeEZshort[i] <- events$TypeEZshort[i])
+  i <- i + 1
+}
+
+events$LocationEZshort[1] <- "-"
+i <- 2
+while(i <= nrow(events)){
+  ifelse(events$EZshort[i] != 0,
+         ifelse(events$Event_team[i-1] == events$Hometeam,
+                ifelse(events$ycoord[i] >= 7.5, events$LocationEZshort[i] <- "Far Left", 
+                       ifelse(events$ycoord[i] <= -7.5, events$LocationEZshort[i] <- "Far Right", 
+                              ifelse(events$ycoord[i] <= 0, events$LocationEZshort[i] <- "Centr Right", events$LocationEZshort[i] <- "Centr Left"))),
+                ifelse(events$ycoord[i] >= 7.5, events$LocationEZshort[i] <- "Far Right", 
+                       ifelse(events$ycoord[i] <= -7.5, events$LocationEZshort[i] <- "Far Left", 
+                              ifelse(events$ycoord[i] <= 0, events$LocationEZshort[i] <- "Centr Left", events$LocationEZshort[i] <- "Centr Right")))),
+         events$LocationEZshort[i] <- "-")
+  i <- i + 1
+}
+ifelse(nrow(nrow(as.data.frame(dir()))) == 1,
+       {events$EZ <- events$EZshort; 
+       events$TypeEZ <- events$TypeEZshort; 
+       events$LocationEZ <- events$LocationEZshort},
+       {events$EZ <- events$EZ; 
+       events$TypeEZ <- events$TypeEZ; 
+       events$LocationEZ <- events$LocationEZ})
+events$EZshort <- events$TypeEZshort <- events$LocationEZshort <- NULL
+#########################################################################################
 
 # Корректируем отметки входа в зону
 
@@ -569,14 +650,6 @@ while(i <= nrow(events)){
 }
 delH <- data_frame()
 
-# Заменяем значения на ID
-
-match$HomeTeam <- filter(team.roster, Team == match$HomeTeam)$TeamID
-match$AwayTeam <- filter(team.roster, Team == match$AwayTeam)$TeamID
-events[events$Event_team == events$Hometeam,]$Event_team <- filter(team.roster, Team == events$Hometeam[1])$TeamID
-events[events$Event_team == events$Awayteam,]$Event_team <- filter(team.roster, Team == events$Awayteam[1])$TeamID
-events$Hometeam <- filter(team.roster, Team == events$Hometeam[1])$TeamID
-events$Awayteam <- filter(team.roster, Team == events$Awayteam[1])$TeamID
 events$flag <- events$N <- NULL
 
 # Вводим следующие и предыдущие события
@@ -610,6 +683,62 @@ events$Event.next[1] <- events$Event[2]
 events$Event.prev[1] <- "-"
 events$Event.prev[nrow(events)] <- events$Event.prev[nrow(events)-1]
 
+# Определяем победителя вбрасывания
+
+i <- 1
+while(i <= nrow(events)){
+  ifelse(events$Event[i] == "Face-off", 
+         {events$FaceOffWon[i] <- events[events$Seconds >= events$Seconds[i] + 2 & events$Event_team != "-",]$Event_team[1]; 
+         events$FaceOffWonJersey[i] <- events[events$Seconds >= events$Seconds[i] + 2 & events$Event_team != "-",]$Jersey[1]}, 
+         {events$FaceOffWon[i] <- "-"; events$FaceOffWonJersey[i] <- "-"})
+  i <- i + 1
+}
+
+# Определяем подбор в зоне защиты
+
+events$PuckRecoveryDef[1] <- 0
+i <- 2
+while(i <= nrow(events)){
+  ifelse(((events$Event_team[i] == events$Hometeam[i] & events$Homezone[i] == "Def")|(events$Event_team[i] == events$Awayteam[i] & events$Homezone[i] == "Off")) & 
+           (events$Event[i] == "Pass" | events$Event[i] == "Reception") & 
+           ((substr(events$Event[i-1], 1, 4) == "Save" & events$Event_team[i-1] == events$Event_team[i]) | 
+              (events$Event[i-1] == "Off the boards" & (substr(events$Event[i-2], 1, 4) == "Shot" | (substr(events$Event[i-2], 1, 4) == "Save" & events$Event_team[i-2] == events$Event_team[i]) | (events$Event[i-2] == "Reception" & substr(events$Event[i-3], 1, 4) == "Shot"))) | 
+              (events$Event[i-1] == "Reception" & substr(events$Event[i-2], 1, 4) == "Shot")), 
+         events$PuckRecoveryDef[i] <- 1, 
+         events$PuckRecoveryDef[i] <- 0)
+  i <- i + 1
+}
+
+# Определяем подбор в зоне атаки
+
+events$PuckRecoveryOff[1] <- 0
+i <- 2
+while(i <= nrow(events)){
+  ifelse(((events$Event_team[i] == events$Hometeam[i] & events$Homezone[i] == "Off")|(events$Event_team[i] == events$Awayteam[i] & events$Homezone[i] == "Def")) & 
+           (events$Event[i] == "Reception" | events$Event[i] == "Pass" | substr(events$Event[i], 1, 4) == "Shot") & 
+           ((substr(events$Event[i-1], 1, 4) == "Save" & events$Event_team[i-1] != events$Event_team[i]) | 
+              (events$Event[i-1] == "Off the boards" & ((substr(events$Event[i-2], 1, 4) == "Shot")|(substr(events$Event[i-2], 1, 4) == "Save")|(events$Event[i-2] == "Reception" & substr(events$Event[i-3], 1, 4) == "Shot"))) | 
+              (events$Event[i-1] == "Reception" & substr(events$Event[i-2], 1, 4) == "Shot")), 
+         events$PuckRecoveryOff[i] <- 1,
+         events$PuckRecoveryOff[i] <- 0)
+  i <- i + 1
+}
+
+# Определяем выходы из зоны
+
+events$OutZoneType[1] <- "-"
+i <- 2
+while(i <= nrow(events)){
+  ifelse(events$Event[i] == "Skating with the puck" & ((events$Event_team[i] == events$Hometeam[i] & events$Homezone[i] == "Def") | (events$Event_team[i] == events$Awayteam[i] & events$Homezone[i] == "Off")) & 
+           events$Homezone[i+1] != events$Homezone[i],
+         events$OutZoneType[i] <- "CarryOut",
+         ifelse(((events$Event_team[i] == events$Hometeam[i] & events$Homezone[i] == "Def") | (events$Event_team[i] == events$Awayteam[i] & events$Homezone[i] == "Off")) & 
+                  (events$Event[i] == "Pass" | events$Event[i] == "Reception" | substr(events$Event, 1, 4) == "Shot") & events$Homezone[i+1] != events$Homezone[i], 
+                events$OutZoneType[i] <- "DumpOut", 
+                events$OutZoneType[i] <- "-"))
+  i <- i + 1
+}
+
 plUniq <- read.table("../player_update/plRosterUnic.csv", sep = ";", header = T)
 
 # Составляем таблицу статистик
@@ -624,13 +753,6 @@ grdG <- grdG[,c("Event_team", "Jersey")]
 names(grd)[1] <- names(grdG)[1] <- "Team"
 grd <- arrange(grd, Team, Jersey)
 grdG <- arrange(grdG, Team, Jersey)
-
-# # temp
-# events_tmp <- events
-# events <- filter(events_tmp, is.na(str_match(Homepl, "55")) == F & is.na(str_match(Homepl, "22")) == F & is.na(str_match(Homepl, "\\d+")) == F)
-# events <- filter(events_tmp, is.na(str_match(Homepl, "\\d+")) == F)
-# grd <- 
-# events <- events_tmp
 
 i <- 1
 while(i <= nrow(grd)){
@@ -679,7 +801,7 @@ while(i <= nrow(grd)){
   grd$GA[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Event", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Event_team != grd$Team[i] & substr(Event, 1, 4) == "Goal")))
   grd$SCF[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Danger", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Jersey != grd$Jersey[i] & Event_team == grd$Team[i] & Danger == "Danger")))
   grd$SCA[i] <- as.numeric(group_size(filter(events[, c("Event_team", "Danger", "Jersey", "Homepl", "Awaypl", "Hometeam", "Awayteam")], ((is.na(str_match(Awaypl, grd$Jersey[i])) == F & grd$Team[i] == Awayteam)|(is.na(str_match(Homepl, grd$Jersey[i])) == F & grd$Team[i] == Hometeam)) & Event_team != grd$Team[i] & Danger == "Danger")))
-  i <- i + 1
+   i <- i + 1
 }
 i <- 1
 while(i <= nrow(grd)){
@@ -694,7 +816,7 @@ grd$Min <- grd$Pos <- NULL
 write.table(events, "../result_table/events.csv", sep = ";", row.names = F)
 write.table(puck, "../result_table/puck.csv", sep = ";", row.names = F)
 write.table(match, "../result_table/match.csv", sep = ";", row.names = F)
-write.table(grd, "../result_table/gridwith.csv", sep = ";", row.names = F)
+write.table(grd, "../result_table/grid.csv", sep = ";", row.names = F)
 
 
 
